@@ -27,91 +27,90 @@ locals {
 EOI
 }
 
-data "aws_vpc" "main" {
-  id = var.lab_vpc_id
+resource "aws_vpc" "monitoring" {
+  cidr_block = "172.32.0.0/16"
+  enable_dns_hostnames = true
+
+  tags = {
+    name = "Monitoring VPC"
+  }
 }
 
-resource "aws_subnet" "ec2_public" {
-  vpc_id            = data.aws_vpc.main.id
-  cidr_block        = "172.31.100.0/24"
+resource "aws_subnet" "ecs_public" {
+  vpc_id            = aws_vpc.monitoring.id
+  cidr_block        = "172.32.1.0/24"
   availability_zone = "us-east-1a"
   map_public_ip_on_launch = true
 }
-resource "aws_subnet" "rds_private_1" {
-  vpc_id            = data.aws_vpc.main.id
-  cidr_block        = "172.31.101.0/24"
-  availability_zone = "us-east-1a"
-}
-resource "aws_subnet" "rds_private_2" {
-  vpc_id            = data.aws_vpc.main.id
-  cidr_block        = "172.31.102.0/24"
-  availability_zone = "us-east-1b"
-}
-resource "aws_security_group" "dd_ec2_sg" {
-  vpc_id = data.aws_vpc.main.id
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # Adjust as needed
-  }
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [aws_subnet.rds_private_1.cidr_block, aws_subnet.rds_private_2.cidr_block]
-  }
-}
-resource "aws_security_group" "dd_rds_sg" {
-  vpc_id = data.aws_vpc.main.id
-  ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [
-      aws_subnet.ec2_public.cidr_block,
-      var.cidr_block_range_1a,
-      var.cidr_block_range_1b
-    ]
-  }
-}
-resource "aws_db_subnet_group" "rds_subnet_group" {
-  name       = "rds-subnet-group"
-  subnet_ids = [aws_subnet.rds_private_1.id, aws_subnet.rds_private_2.id]
-}
-resource "aws_db_instance" "ddlabdb" {
-  identifier              = "ddlabdb"
-  engine                 = "postgres"
-  engine_version         = "16.9"
-  instance_class         = "db.t3.micro"
-  allocated_storage       = 20
-  username               = "postgres"
-  password               = "SecretSecret"  # Change to a secure password
-  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
-  vpc_security_group_ids = [aws_security_group.dd_rds_sg.id]
-  skip_final_snapshot    = true
-}
-resource "aws_instance" "dd_ec2" {
-  ami           = "ami-00ca32bbc84273381"  # Change to a valid AMI ID
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.ec2_public.id
-  vpc_security_group_ids = [aws_security_group.dd_ec2_sg.id]
-  tags = {
-    Name = "DDLabEC2Instance"
-  }
-}
+### resource "aws_subnet" "rds_private_1" {
+###   vpc_id            = aws_vpc.monitoring.id
+###   cidr_block        = "172.32.2.0/24"
+###   availability_zone = "us-east-1a"
+### }
+### resource "aws_subnet" "rds_private_2" {
+###   vpc_id            = aws_vpc.monitoring.id
+###   cidr_block        = "172.32.3.0/24"
+###   availability_zone = "us-east-1b"
+### }
+### resource "aws_security_group" "dd_ec2_sg" {
+###   vpc_id = aws_vpc.monitoring.id
+###   ingress {
+###     from_port   = 22
+###     to_port     = 22
+###     protocol    = "tcp"
+###     cidr_blocks = ["0.0.0.0/0"]
+###   }
+###   egress {
+###     from_port   = 443
+###     to_port     = 443
+###     protocol    = "tcp"
+###     cidr_blocks = ["0.0.0.0/0"]
+###   }
+###   egress {
+###     from_port   = 5432
+###     to_port     = 5432
+###     protocol    = "tcp"
+###     cidr_blocks = [aws_subnet.rds_private_1.cidr_block, aws_subnet.rds_private_2.cidr_block]
+###   }
+### }
+### resource "aws_security_group" "dd_rds_sg" {
+###   vpc_id = aws_vpc.monitoring.id
+###   ingress {
+###     from_port   = 5432
+###     to_port     = 5432
+###     protocol    = "tcp"
+###     cidr_blocks = [
+###       aws_subnet.ec2_public.cidr_block,
+###       var.cidr_block_range_1a,
+###       var.cidr_block_range_1b
+###     ]
+###   }
+### }
+### resource "aws_db_subnet_group" "rds_subnet_group" {
+###   name       = "rds-subnet-group"
+###   subnet_ids = [aws_subnet.rds_private_1.id, aws_subnet.rds_private_2.id]
+### }
+### resource "aws_db_instance" "ddlabdb" {
+###   identifier              = "ddlabdb"
+###   engine                 = "postgres"
+###   engine_version         = "16.9"
+###   instance_class         = "db.t3.micro"
+###   allocated_storage       = 20
+###   username               = "postgres"
+###   password               = "SecretSecret"  # Change to a secure password
+###   db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
+###   vpc_security_group_ids = [aws_security_group.dd_rds_sg.id]
+###   skip_final_snapshot    = true
+### }
+### resource "aws_instance" "dd_ec2" {
+###   ami           = "ami-00ca32bbc84273381"  # Change to a valid AMI ID
+###   instance_type = "t2.micro"
+###   subnet_id     = aws_subnet.ec2_public.id
+###   vpc_security_group_ids = [aws_security_group.dd_ec2_sg.id]
+###   tags = {
+###     Name = "DDLabEC2Instance"
+###   }
+### }
 
 
 # Create an ECS Cluster
@@ -119,45 +118,56 @@ resource "aws_ecs_cluster" "dd_fargate_cluster" {
   name = "dd-fargate-cluster"
 }
 
-#resource "aws_internet_gateway" "igw" {
-#  vpc_id = data.aws_vpc.main.id
-#}
-#resource "aws_route_table" "public" {
-#  vpc_id = data.aws_vpc.main.id
-#
-#  route {
-#    cidr_block = "0.0.0.0/0"
-#    gateway_id = aws_internet_gateway.igw.id
-#  }
-#}
-resource "aws_subnet" "public_1a" {
-  vpc_id                  = data.aws_vpc.main.id
-  cidr_block              = var.cidr_block_range_1a
-  availability_zone       = "us-east-1a"
-  map_public_ip_on_launch = true
+### resource "aws_internet_gateway" "igw" {
+###   vpc_id = data.aws_vpc.main.id
+### }
+### resource "aws_route_table" "public" {
+###   vpc_id = data.aws_vpc.main.id
+### 
+###   route {
+###     cidr_block = "0.0.0.0/0"
+###     gateway_id = aws_internet_gateway.igw.id
+###   }
+### }
+### resource "aws_subnet" "public_1a" {
+###   vpc_id                  = data.aws_vpc.main.id
+###   cidr_block              = var.cidr_block_range_1a
+###   availability_zone       = "us-east-1a"
+###   map_public_ip_on_launch = true
+### 
+###   tags = {
+###     Name = "dd-agent-subnet-1a"
+###   }
+### }
+### resource "aws_subnet" "public_1b" {
+###   vpc_id                  = data.aws_vpc.main.id
+###   cidr_block              = var.cidr_block_range_1b
+###   availability_zone       = "us-east-1b"
+###   map_public_ip_on_launch = true
+### 
+###   tags = {
+###     Name = "dd-agent-subnet-1b"
+###   }
+### }
 
-  tags = {
-    Name = "dd-agent-subnet-1a"
+resource "aws_internet_gateway" "monitoring_igw" {
+  vpc_id = aws_vpc.monitoring.id
+}
+resource "aws_route_table" "monitoring" {
+  vpc_id = aws_vpc.monitoring.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.monitoring_igw.id
   }
 }
-resource "aws_subnet" "public_1b" {
-  vpc_id                  = data.aws_vpc.main.id
-  cidr_block              = var.cidr_block_range_1b
-  availability_zone       = "us-east-1b"
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "dd-agent-subnet-1b"
-  }
+resource "aws_route_table_association" "public_1a_assoc" {
+  subnet_id      = aws_subnet.ecs_public.id
+  route_table_id = aws_route_table.monitoring.id
 }
-
-#resource "aws_route_table_association" "public_1a_assoc" {
-#  subnet_id      = aws_subnet.public_1a.id
-#  route_table_id = aws_route_table.public.id
-#}
 resource "aws_security_group" "ecs_service_sg" {
   name   = "dd-ecs-service-sg"
-  vpc_id = data.aws_vpc.main.id
+  vpc_id = aws_vpc.monitoring.id
 
   egress {
     from_port   = 0
@@ -308,7 +318,7 @@ resource "aws_ecs_service" "postgres_dd_agent" {
                     ]
 
   network_configuration {
-    subnets         = [aws_subnet.public_1a.id]
+    subnets         = [aws_subnet.ecs_public.id]
     security_groups = [aws_security_group.ecs_service_sg.id]
     assign_public_ip = true
   }
@@ -343,8 +353,7 @@ resource "aws_ecs_task_definition" "debug_task" {
       environment = [
         { name = "DD_API_KEY", value = "10991f6198ef2d574ceffe57a44de06f" },
         { name = "DD_DD_URL", value = "https://us3.datadoghq.com" },
-#        { name = "DD_RDS_ENDPOINT", value = "${each.value.rds_endpoint}" },
-        { name = "DD_RDS_ENDPOINT", value = "${aws_db_instance.ddlabdb.endpoint}" },
+        { name = "DD_RDS_ENDPOINT", value = "${each.value.rds_endpoint}" },
         { name = "DD_RDS_PORT", value = "${each.value.rds_port}" },
         { name = "DD_RDS_DB_USERNAME", value = "datadog" },
         { name = "DD_RDS_DB_PASSWORD", value = "KindaSecret" },
@@ -370,7 +379,7 @@ resource "aws_ecs_service" "debug_task" {
                     ]
 
   network_configuration {
-    subnets         = [aws_subnet.public_1a.id]
+    subnets         = [aws_subnet.ecs_public.id]
     security_groups = [aws_security_group.ecs_service_sg.id]
     assign_public_ip = true
   }

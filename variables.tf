@@ -51,8 +51,7 @@ variable "postgres_db_list" {
   }))
   default = {
     lab = {
-      rds_endpoint = "ddlabdb.clgyiws0up99.us-east-1.rds.amazonaws.com"
-      # rds_endpoint = "labdb.clgyiws0up99.us-east-1.rds.amazonaws.com"
+      rds_endpoint = "labdb.clgyiws0up99.us-east-1.rds.amazonaws.com"
       rds_port = "5432"
       rds_region = "us-east-1"
     }
