@@ -2,17 +2,21 @@ variable "aws_region" {
   type = string
   default = "us-east-1"
 }
-variable "lab_vpc_id" {
-  type = string
-  default = "vpc-0bd55969a85ec8720"
+variable "autodiscovery_enabled" {
+  type = bool
+  default = false
 }
-variable "cidr_block_range_1a" {
-  type = string
-  default = "172.31.98.0/24"
+variable "dedicated_vpc_flag" {
+  type = bool
+  default = false
 }
-variable "cidr_block_range_1b" {
+variable "rds_vpc_id" {
   type = string
-  default = "172.31.99.0/24"
+  default = "vpc-0b54f6bbcb3b174f2"
+}
+variable "ecs_cidr_block" {
+  type = string
+  default = "10.0.4.0/24"
 }
 variable "task_count" {
   type = number
@@ -34,13 +38,13 @@ variable "dd_container_version" {
   type = string
   default = "7.69.3-rc.1-linux"
 }
-variable "ecs_subnet" {
+variable "dd_db_username" {
   type = string
-  default = "subnet-058cd8b1961070b9b"
+  default = "datadog"
 }
-variable "ecs_security_group" {
+variable "dd_api_endpoint" {
   type = string
-  default = "sg-07d3da5d3e3c948f3"
+  default = "https://us3.datadoghq.com"
 }
 
 variable "postgres_db_list" {

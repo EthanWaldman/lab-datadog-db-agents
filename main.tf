@@ -1,33 +1,70 @@
 locals {
-  dd_postgres_config_json = <<EOI
-{
-  "postgres": {
-    "init_config": {},
-    "instances": [
-      {
-        "dbm": true,
-        "host": "%%env_DD_RDS_ENDPOINT%%",
-        "port": "%%env_DD_RDS_PORT%%",
-        "username": "datadog",
-        "password": "%%env_DD_RDS_DB_PASSWORD%%",
-        "aws": {
-          "instance_endpoint": "%%env_DD_RDS_ENDPOINT%%",
-          "region": "%%env_DD_RDS_REGION%%"
-        },
-        "tags": [
-          "dbinstanceidentifier:postgres"
-        ],
-        "collect_schemas": {
-          "enabled": true
-        }
-      }
-    ]
-  }
-}
+  dd_autodiscovery_postgres_config_yaml = <<EOI
+ad_identifiers:
+  - _dbm_postgres
+init_config:
+instances:
+  - dbm: true
+    host: "%%host%%"
+    port: "%%port%%"
+    username: "%%env_DD_RDS_DB_USERNAME%%"
+    password: "%%env_DD_RDS_DB_PASSWORD%%"
+    database_autodiscovery:
+      enabled: true
+    collect_schemas:
+      enabled: true
 EOI
+
+  dd_static_postgres_config_yaml = <<EOI
+init_config:
+instances:
+  - dbm: true
+    host: "%%env_DD_RDS_ENDPOINT%%"
+    port: "%%env_DD_RDS_PORT%%"
+    username: "%%env_DD_RDS_DB_USERNAME%%"
+    password: "%%env_DD_RDS_DB_PASSWORD%%"
+    aws:
+      instance_endpoint: "%%env_DD_RDS_ENDPOINT%%"
+      region: "%%env_DD_RDS_REGION%%"
+    collect_schemas:
+      enabled: true
+EOI
+
+  dd_datadog_config_yaml = <<EOI
+ec2_prefer_imdsv2: true
+cloud_provider_metadata:
+  - aws
+  - ecs
+database_monitoring:
+  autodiscovery:
+    rds:
+      enabled: true
+      discovery_interval: 300
+      tags: []
+EOI
+
+  postgres_config_yaml = var.autodiscovery_enabled ? local.dd_autodiscovery_postgres_config_yaml : local.dd_static_postgres_config_yaml
+
+  entry_point_command = var.autodiscovery_enabled ? "echo $CONFIGFILE_POSTGRES | base64 -d > /etc/datadog-agent/conf.d/postgres.d/conf.yaml;echo $CONFIGFILE_DATADOG | base64 -d > /etc/datadog-agent/datadog.yaml; entrypoint.sh" : "echo $CONFIGFILE_POSTGRES | base64 -d > /etc/datadog-agent/conf.d/postgres.d/conf.yaml; entrypoint.sh"
+}
+
+data "aws_secretsmanager_secret" "dd_api_key" {
+  name = "lab_dd_api_key"
+}
+data "aws_secretsmanager_secret_version" "dd_api_key" {
+  secret_id = data.aws_secretsmanager_secret.dd_api_key.id
+}
+
+data "aws_secretsmanager_secret" "dd_db_password" {
+  name = "lab_dd_db_password"
+}
+data "aws_secretsmanager_secret_version" "dd_db_password" {
+  secret_id = data.aws_secretsmanager_secret.dd_db_password.id
 }
 
 resource "aws_vpc" "monitoring" {
+  count = var.dedicated_vpc_flag ? 1 : 0
+
   cidr_block = "172.32.0.0/16"
   enable_dns_hostnames = true
 
@@ -36,129 +73,45 @@ resource "aws_vpc" "monitoring" {
   }
 }
 
+locals {
+  monitoring_vpc_id = var.dedicated_vpc_flag ? aws_vpc.monitoring[0].id : var.rds_vpc_id
+}
+
 resource "aws_subnet" "ecs_public" {
-  vpc_id            = aws_vpc.monitoring.id
-  cidr_block        = "172.32.1.0/24"
+  vpc_id            = local.monitoring_vpc_id
+  cidr_block        = var.ecs_cidr_block
   availability_zone = "us-east-1a"
   map_public_ip_on_launch = true
+  tags = {
+    subnet_function = "Monitoring"
+  }
 }
-### resource "aws_subnet" "rds_private_1" {
-###   vpc_id            = aws_vpc.monitoring.id
-###   cidr_block        = "172.32.2.0/24"
-###   availability_zone = "us-east-1a"
-### }
-### resource "aws_subnet" "rds_private_2" {
-###   vpc_id            = aws_vpc.monitoring.id
-###   cidr_block        = "172.32.3.0/24"
-###   availability_zone = "us-east-1b"
-### }
-### resource "aws_security_group" "dd_ec2_sg" {
-###   vpc_id = aws_vpc.monitoring.id
-###   ingress {
-###     from_port   = 22
-###     to_port     = 22
-###     protocol    = "tcp"
-###     cidr_blocks = ["0.0.0.0/0"]
-###   }
-###   egress {
-###     from_port   = 443
-###     to_port     = 443
-###     protocol    = "tcp"
-###     cidr_blocks = ["0.0.0.0/0"]
-###   }
-###   egress {
-###     from_port   = 5432
-###     to_port     = 5432
-###     protocol    = "tcp"
-###     cidr_blocks = [aws_subnet.rds_private_1.cidr_block, aws_subnet.rds_private_2.cidr_block]
-###   }
-### }
-### resource "aws_security_group" "dd_rds_sg" {
-###   vpc_id = aws_vpc.monitoring.id
-###   ingress {
-###     from_port   = 5432
-###     to_port     = 5432
-###     protocol    = "tcp"
-###     cidr_blocks = [
-###       aws_subnet.ec2_public.cidr_block,
-###       var.cidr_block_range_1a,
-###       var.cidr_block_range_1b
-###     ]
-###   }
-### }
-### resource "aws_db_subnet_group" "rds_subnet_group" {
-###   name       = "rds-subnet-group"
-###   subnet_ids = [aws_subnet.rds_private_1.id, aws_subnet.rds_private_2.id]
-### }
-### resource "aws_db_instance" "ddlabdb" {
-###   identifier              = "ddlabdb"
-###   engine                 = "postgres"
-###   engine_version         = "16.9"
-###   instance_class         = "db.t3.micro"
-###   allocated_storage       = 20
-###   username               = "postgres"
-###   password               = "SecretSecret"  # Change to a secure password
-###   db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
-###   vpc_security_group_ids = [aws_security_group.dd_rds_sg.id]
-###   skip_final_snapshot    = true
-### }
-### resource "aws_instance" "dd_ec2" {
-###   ami           = "ami-00ca32bbc84273381"  # Change to a valid AMI ID
-###   instance_type = "t2.micro"
-###   subnet_id     = aws_subnet.ec2_public.id
-###   vpc_security_group_ids = [aws_security_group.dd_ec2_sg.id]
-###   tags = {
-###     Name = "DDLabEC2Instance"
-###   }
-### }
-
 
 # Create an ECS Cluster
 resource "aws_ecs_cluster" "dd_fargate_cluster" {
   name = "dd-fargate-cluster"
 }
 
-### resource "aws_internet_gateway" "igw" {
-###   vpc_id = data.aws_vpc.main.id
-### }
-### resource "aws_route_table" "public" {
-###   vpc_id = data.aws_vpc.main.id
-### 
-###   route {
-###     cidr_block = "0.0.0.0/0"
-###     gateway_id = aws_internet_gateway.igw.id
-###   }
-### }
-### resource "aws_subnet" "public_1a" {
-###   vpc_id                  = data.aws_vpc.main.id
-###   cidr_block              = var.cidr_block_range_1a
-###   availability_zone       = "us-east-1a"
-###   map_public_ip_on_launch = true
-### 
-###   tags = {
-###     Name = "dd-agent-subnet-1a"
-###   }
-### }
-### resource "aws_subnet" "public_1b" {
-###   vpc_id                  = data.aws_vpc.main.id
-###   cidr_block              = var.cidr_block_range_1b
-###   availability_zone       = "us-east-1b"
-###   map_public_ip_on_launch = true
-### 
-###   tags = {
-###     Name = "dd-agent-subnet-1b"
-###   }
-### }
-
 resource "aws_internet_gateway" "monitoring_igw" {
-  vpc_id = aws_vpc.monitoring.id
-}
-resource "aws_route_table" "monitoring" {
-  vpc_id = aws_vpc.monitoring.id
+  count = var.dedicated_vpc_flag ? 1 : 0
 
+  vpc_id = aws_vpc.monitoring[0].id
+}
+data "aws_internet_gateway" "rds_igw" {
+  filter {
+    name = "attachment.vpc-id"
+    values = [var.rds_vpc_id]
+  }
+}
+locals {
+  monitoring_igw = var.dedicated_vpc_flag ? aws_internet_gateway.monitoring_igw[0].id : data.aws_internet_gateway.rds_igw.id
+}
+
+resource "aws_route_table" "monitoring" {
+  vpc_id = local.monitoring_vpc_id
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.monitoring_igw.id
+    gateway_id = local.monitoring_igw
   }
 }
 resource "aws_route_table_association" "public_1a_assoc" {
@@ -167,7 +120,7 @@ resource "aws_route_table_association" "public_1a_assoc" {
 }
 resource "aws_security_group" "ecs_service_sg" {
   name   = "dd-ecs-service-sg"
-  vpc_id = aws_vpc.monitoring.id
+  vpc_id = local.monitoring_vpc_id
 
   egress {
     from_port   = 0
@@ -200,6 +153,10 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   role       = aws_iam_role.ecs_task_execution_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
+resource "aws_iam_role_policy_attachment" "rds_readonly_role_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonRDSReadOnlyAccess"
+}
 
 # # Attach Service policy to the execution role
 # resource "aws_iam_role_policy_attachment" "ecs_service_role_policy" {
@@ -228,7 +185,8 @@ resource "aws_iam_role_policy" "ecs_service_policy" {
                 "servicediscovery:Get*",
                 "servicediscovery:List*",
                 "servicediscovery:RegisterInstance",
-                "servicediscovery:UpdateInstanceCustomHealthStatus"
+                "servicediscovery:UpdateInstanceCustomHealthStatus",
+                "secretsmanager:Get*"
         ]
         Resource = "*"
       }
@@ -263,9 +221,54 @@ resource "aws_cloudwatch_log_group" "dd_app_logs" {
   retention_in_days = 3
 }
 
-# Define an ECS Task Definition for Fargate
-resource "aws_ecs_task_definition" "postgres_dd_agent" {
-  for_each                 = var.postgres_db_list
+resource "aws_ecs_task_definition" "postgres_dd_agent_autodiscovery" {
+  count = var.autodiscovery_enabled ? 1 : 0
+
+  family                   = "dd-agent-postgres-task"
+  cpu                      = "${var.task_cpu_units}"
+  memory                   = "${var.task_memory_mb}"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_task_execution_role.arn
+  container_definitions    = jsonencode([
+    {
+      name  = "datadog-agent-postgresql"
+      image = "${var.dd_container_image}:${var.dd_container_version}"
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.dd_app_logs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "agent"
+        }
+      }
+      command = [
+        "sh",
+        "-c",
+        local.entry_point_command
+      ]
+      secrets = [
+        { name = "DD_API_KEY", valueFrom = data.aws_secretsmanager_secret_version.dd_api_key.arn },
+        { name = "DD_RDS_DB_PASSWORD", valueFrom = data.aws_secretsmanager_secret_version.dd_db_password.arn }
+      ]
+      environment = [
+        { name = "DD_DD_URL", value = var.dd_api_endpoint },
+#        { name = "DD_EC2_PREFER_IMDSV2", value = "true" },
+        { name = "AWS_EC2_METADATA_DISABLED", value = "true" },
+        { name = "DD_LOG_LEVEL", value = "debug" },
+        { name = "ECS_FARGATE", value = "true"  },
+        { name = "AWS_REGION", value = "us-east-1"  },
+#        { name = "DD_COLLECT_ECS_METADATA", value = "true"  },
+        { name = "CONFIGFILE_POSTGRES", value = base64encode(local.postgres_config_yaml) },
+        { name = "CONFIGFILE_DATADOG", value = base64encode(local.dd_datadog_config_yaml) },
+        { name = "DD_RDS_DB_USERNAME", value = var.dd_db_username },
+      ]
+    }
+  ])
+}
+resource "aws_ecs_task_definition" "postgres_dd_agent_static" {
+  for_each                 = var.autodiscovery_enabled ? {} : var.postgres_db_list
 
   family                   = "dd-agent-postgres-task"
   cpu                      = "${var.task_cpu_units}"
@@ -286,16 +289,21 @@ resource "aws_ecs_task_definition" "postgres_dd_agent" {
           "awslogs-stream-prefix" = "${each.key}"
         }
       }
-      dockerLabels = {
-        "com.datadoghq.ad.checks" = local.dd_postgres_config_json
-      }
+      command = [
+        "sh",
+        "-c",
+        local.entry_point_command
+      ]
+      secrets = [
+        { name = "DD_API_KEY", valueFrom = data.aws_secretsmanager_secret_version.dd_api_key.arn },
+        { name = "DD_RDS_DB_PASSWORD", valueFrom = data.aws_secretsmanager_secret_version.dd_db_password.arn }
+      ]
       environment = [
-        { name = "DD_API_KEY", value = "10991f6198ef2d574ceffe57a44de06f" },
-        { name = "DD_DD_URL", value = "https://us3.datadoghq.com" },
+        { name = "DD_DD_URL", value = var.dd_api_endpoint },
+        { name = "CONFIGFILE_POSTGRES", value = base64encode(local.postgres_config_yaml) },
         { name = "DD_RDS_ENDPOINT", value = "${each.value.rds_endpoint}" },
         { name = "DD_RDS_PORT", value = "${each.value.rds_port}" },
-        { name = "DD_RDS_DB_USERNAME", value = "datadog" },
-        { name = "DD_RDS_DB_PASSWORD", value = "KindaSecret" },
+        { name = "DD_RDS_DB_USERNAME", value = var.dd_db_username },
         { name = "DD_RDS_REGION", value = "${each.value.rds_region}" },
       ]
     }
@@ -303,12 +311,37 @@ resource "aws_ecs_task_definition" "postgres_dd_agent" {
 }
 
 # Define an ECS Service
-resource "aws_ecs_service" "postgres_dd_agent" {
-  for_each        = var.postgres_db_list
+resource "aws_ecs_service" "postgres_dd_agent_autodiscovery" {
+  count = var.autodiscovery_enabled ? 1 : 0
+
+#  for_each        = var.postgres_db_list
+
+#  name            = "dd-agent-${each.key}"
+  name            = "dd-agent"
+  cluster         = aws_ecs_cluster.dd_fargate_cluster.id
+#  task_definition = aws_ecs_task_definition.postgres_dd_agent[each.key].arn
+  task_definition = aws_ecs_task_definition.postgres_dd_agent_autodiscovery[0].arn
+  launch_type     = "FARGATE"
+  desired_count   = var.task_count
+  enable_execute_command = true
+  # iam_role        = aws_iam_role.ecs_task_execution_role.arn
+  depends_on      = [
+                      aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
+                    ]
+
+  network_configuration {
+    subnets         = [aws_subnet.ecs_public.id]
+    security_groups = [aws_security_group.ecs_service_sg.id]
+    assign_public_ip = true
+  }
+}
+# Define an ECS Service
+resource "aws_ecs_service" "postgres_dd_agent_static" {
+  for_each        = var.autodiscovery_enabled ? {} : var.postgres_db_list
 
   name            = "dd-agent-${each.key}"
   cluster         = aws_ecs_cluster.dd_fargate_cluster.id
-  task_definition = aws_ecs_task_definition.postgres_dd_agent[each.key].arn
+  task_definition = aws_ecs_task_definition.postgres_dd_agent_static[each.key].arn
   launch_type     = "FARGATE"
   desired_count   = var.task_count
   enable_execute_command = true
@@ -324,63 +357,3 @@ resource "aws_ecs_service" "postgres_dd_agent" {
   }
 }
 
-resource "aws_ecs_task_definition" "debug_task" {
-  for_each                 = var.postgres_db_list
-
-  family                   = "debug-task"
-  cpu                      = "${var.task_cpu_units}"
-  memory                   = "${var.task_memory_mb}"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_execution_role.arn
-  container_definitions    = jsonencode([
-    {
-      name  = "debug-container"
-      image = "busybox:latest"
-      command = [ "sleep", "3600" ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.dd_app_logs.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "${each.key}"
-        }
-      }
-      dockerLabels = {
-        "com.datadoghq.ad.checks" = local.dd_postgres_config_json
-      }
-      environment = [
-        { name = "DD_API_KEY", value = "10991f6198ef2d574ceffe57a44de06f" },
-        { name = "DD_DD_URL", value = "https://us3.datadoghq.com" },
-        { name = "DD_RDS_ENDPOINT", value = "${each.value.rds_endpoint}" },
-        { name = "DD_RDS_PORT", value = "${each.value.rds_port}" },
-        { name = "DD_RDS_DB_USERNAME", value = "datadog" },
-        { name = "DD_RDS_DB_PASSWORD", value = "KindaSecret" },
-        { name = "DD_RDS_REGION", value = "${each.value.rds_region}" },
-      ]
-    }
-  ])
-}
-
-# Define an ECS Service
-resource "aws_ecs_service" "debug_task" {
-  for_each        = var.postgres_db_list
-
-  name            = "debug-${each.key}"
-  cluster         = aws_ecs_cluster.dd_fargate_cluster.id
-  task_definition = aws_ecs_task_definition.debug_task[each.key].arn
-  launch_type     = "FARGATE"
-  desired_count   = var.task_count
-  enable_execute_command = true
-  # iam_role        = aws_iam_role.ecs_task_execution_role.arn
-  depends_on      = [
-                      aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
-                    ]
-
-  network_configuration {
-    subnets         = [aws_subnet.ecs_public.id]
-    security_groups = [aws_security_group.ecs_service_sg.id]
-    assign_public_ip = true
-  }
-}
