@@ -18,26 +18,33 @@ variable "ecs_cidr_block" {
   type = string
   default = "10.0.4.0/24"
 }
-variable "task_count" {
-  type = number
-  default = 1
+variable "task_specs" {
+  type = map(object({
+    count = number
+    vcpu = number
+    memory_mb = number
+  }))
+  default = {
+    agent = {
+      count = 1
+      vcpu = 256
+      memory_mb = 512
+    }
+  }
 }
-variable "task_cpu_units" {
-  type = number
-  default = 256
+variable "container_image" {
+  type = map(object({
+    image_name = string
+    image_version = string
+  }))
+  default = {
+    agent = {
+      image_name = "gcr.io/datadoghq/agent"
+      image_version = "7.69.3-rc.1-linux"
+    }
+  }
 }
-variable "task_memory_mb" {
-  type = number
-  default = 512
-}
-variable "dd_container_image" {
-  type = string
-  default = "gcr.io/datadoghq/agent"
-}
-variable "dd_container_version" {
-  type = string
-  default = "7.69.3-rc.1-linux"
-}
+
 variable "dd_db_username" {
   type = string
   default = "datadog"

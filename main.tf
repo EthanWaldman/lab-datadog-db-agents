@@ -225,8 +225,8 @@ resource "aws_ecs_task_definition" "postgres_dd_agent_autodiscovery" {
   count = var.autodiscovery_enabled ? 1 : 0
 
   family                   = "dd-agent-postgres-task"
-  cpu                      = "${var.task_cpu_units}"
-  memory                   = "${var.task_memory_mb}"
+  cpu                      = var.task_specs["agent"].vcpu
+  memory                   = var.task_specs["agent"].memory_mb
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
@@ -234,7 +234,7 @@ resource "aws_ecs_task_definition" "postgres_dd_agent_autodiscovery" {
   container_definitions    = jsonencode([
     {
       name  = "datadog-agent-postgresql"
-      image = "${var.dd_container_image}:${var.dd_container_version}"
+      image = "${var.container_image["agent"].image_name}:${var.container_image["agent"].image_version}"
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -271,8 +271,8 @@ resource "aws_ecs_task_definition" "postgres_dd_agent_static" {
   for_each                 = var.autodiscovery_enabled ? {} : var.postgres_db_list
 
   family                   = "dd-agent-postgres-task"
-  cpu                      = "${var.task_cpu_units}"
-  memory                   = "${var.task_memory_mb}"
+  cpu                      = var.task_specs["agent"].vcpu
+  memory                   = var.task_specs["agent"].memory_mb
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
@@ -280,7 +280,7 @@ resource "aws_ecs_task_definition" "postgres_dd_agent_static" {
   container_definitions    = jsonencode([
     {
       name  = "datadog-agent-postgresql"
-      image = "${var.dd_container_image}:${var.dd_container_version}"
+      image = "${var.container_image["agent"].image_name}:${var.container_image["agent"].image_version}"
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -322,7 +322,7 @@ resource "aws_ecs_service" "postgres_dd_agent_autodiscovery" {
 #  task_definition = aws_ecs_task_definition.postgres_dd_agent[each.key].arn
   task_definition = aws_ecs_task_definition.postgres_dd_agent_autodiscovery[0].arn
   launch_type     = "FARGATE"
-  desired_count   = var.task_count
+  desired_count   = var.task_specs["agent"].count
   enable_execute_command = true
   # iam_role        = aws_iam_role.ecs_task_execution_role.arn
   depends_on      = [
@@ -343,7 +343,7 @@ resource "aws_ecs_service" "postgres_dd_agent_static" {
   cluster         = aws_ecs_cluster.dd_fargate_cluster.id
   task_definition = aws_ecs_task_definition.postgres_dd_agent_static[each.key].arn
   launch_type     = "FARGATE"
-  desired_count   = var.task_count
+  desired_count   = var.task_specs["agent"].count
   enable_execute_command = true
   # iam_role        = aws_iam_role.ecs_task_execution_role.arn
   depends_on      = [
